@@ -20,7 +20,7 @@ class DQNAgent:
         self.epsilon_min = 1e-4
         self.epsilon_decay = 1 - 1e-4 # decay rate on right
         self.batch_size = 128
-        self.train_start = 1000
+        self.train_start = 1000 # TODO: figure out how to burn this in before replay is used in every single episode..!
 
         # create main model
         self.model = VanillaCNN(input_shape=self.env.state[0].shape, action_space = self.action_size)
@@ -32,21 +32,55 @@ class DQNAgent:
             if self.epsilon > self.epsilon_min:
                 self.epsilon *= self.epsilon_decay
     
-    
-    def act(self, state):
+    def action_mask(self, q_values, position):
+        '''
+        Implements action masking, so that the agent can't take actions that are not possible given the current position.
+        
+        Actions
+        -------
+        0: stay still
+        1: move down
+        2: move right
+        '''
+        if position[0] == self.env.grid_size[0] - 1: # we are already at the bottom row of the grid, so we can't move down
+            q_values[1] = -np.inf
+        if position[1] == self.env.grid_size[1] - 1: # we are already at the rightmost column of the grid, so we can't move right
+            q_values[2] = -np.inf
+        
+        return q_values
 
+    def sample_action_space(self, position):
+        '''
+        Samples the action space, but removes actions that are not possible given the current position
+        '''
+        action_space = dict(zip(["stay still", "move down", "move right", "move up", "move left"], np.arange(self.action_size)))
+        if position[0] == self.env.grid_size[0] - 1: # we are already at the bottom row of the grid, so we can't move down
+            del action_space["move down"]
+        if position[1] == self.env.grid_size[1] - 1: # we are already at the rightmost column of the grid, so we can't move right
+            del action_space["move right"]
+        if "move up" in action_space.keys() and position[0] == 0: # we are already at the top row of the grid, so we can't move up
+            del action_space["move up"]
+        if "move left" in action_space.keys() and position[1] == 0: # we are already at the leftmost column of the grid, so we can't move left
+            del action_space["move left"]
+        
+        return np.random.choice(list(action_space.values()))
+
+    def act(self, state):
+        '''
+        Implements the epsilon-greedy policy, with action masking
+        '''
         patch = state[0]
         position = state[1]
 
         # implement the epsilon-greedy policy
         if random.random() < self.epsilon:
             # explore
-            # TODO: implement action masking to ensure we don't take an illegal action!
-            return self.env.action_space.sample()
+            return self.sample_action_space(position)
         else:
             # exploit
-            # TODO: implement action masking to ensure we don't take an illegal action!
-            return np.argmax(self.model.predict([np.expand_dims(patch, axis=0), np.expand_dims(position, axis=0)])[0])
+            q_values = self.model.predict([np.expand_dims(patch, axis=0), np.expand_dims(position, axis=0)])[0]
+            q_values_masked = self.action_mask(q_values, position)
+            return np.argmax(q_values_masked)
 
     
     def replay(self):
@@ -71,6 +105,11 @@ class DQNAgent:
             next_state_position[i] = minibatch[i][3][1] # i indexes minibatch, 3 indexes next_state from memory, 1 indexes position
             done.append(minibatch[i][4])
 
+        state_patch = np.stack(state_patch, axis=0)
+        state_position = np.stack(state_position, axis=0)
+        next_state_patch = np.stack(next_state_patch, axis=0)
+        next_state_position = np.stack(next_state_position, axis=0)
+        
         # check to see if state.shape is correct. 
         # if these fail, maybe use something like np.stack instead to eventually make it work?
         assert state_patch.shape == (self.batch_size, self.env.patch_size, self.env.patch_size, 1), f"error, state_patch has incorrect shape. should be of shape (batch_size, patch_size, patch_size, channels). got back state_patch.shape = {state_patch.shape}"
