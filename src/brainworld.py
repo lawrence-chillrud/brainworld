@@ -1,5 +1,6 @@
 import random
 import numpy as np
+import copy
 from gym import Env, spaces
 from utils import get_overlap, read_scan, find_tumorous_slice, patchify_slice
 
@@ -56,7 +57,7 @@ class BrainWorldEnv(Env):
         self.patches = patchify_slice(self.scan[:, :, self.grid_id[1]], patch_size=self.patch_size, stride=self.patch_size) # need to update to specify axis?
         self.patches_seg = patchify_slice(self.seg[:, :, self.grid_id[1]], patch_size=self.patch_size, stride=self.patch_size) # need to update to specify axis?
         
-        self.current_pos = start_pos
+        self.current_pos = copy.deepcopy(self.start_pos)
         self.current_patch = np.expand_dims(self.patches[start_pos[0]][start_pos[1]], axis=-1)
         self.state = [self.current_patch, self.current_pos]
 
@@ -72,7 +73,7 @@ class BrainWorldEnv(Env):
         if action == 0: # stay still
 
             if np.all(self.current_pos == self.goal_pos): # overlap lesion
-                done = True
+                # done = True
                 reward = 1
             else: # outside lesion
                 reward = -2
@@ -130,7 +131,7 @@ class BrainWorldEnv(Env):
         self.patches = patchify_slice(self.scan[:, :, self.grid_id[1]], patch_size=self.patch_size, stride=self.patch_size) # need to update to specify axis?
         self.patches_seg = patchify_slice(self.seg[:, :, self.grid_id[1]], patch_size=self.patch_size, stride=self.patch_size) # need to update to specify axis?
         
-        self.current_pos = self.start_pos
+        self.current_pos = copy.deepcopy(self.start_pos)
         self.current_patch = np.expand_dims(self.patches[self.start_pos[0]][self.start_pos[1]], axis=-1)
         self.state = [self.current_patch, self.current_pos]
 

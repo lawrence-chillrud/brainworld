@@ -13,10 +13,10 @@ class DQNAgent:
         
         self.action_size = self.env.action_space.n
         self.EPISODES = 90
-        self.memory = deque(maxlen=2000) # 15,000?
+        self.memory = deque(maxlen=15000) # 15,000?
         
         self.gamma = 0.99    # discount rate
-        self.epsilon = 0.7  # exploration rate
+        self.epsilon = 0.3  # exploration rate (could try 0.7)
         self.epsilon_min = 1e-4
         self.epsilon_decay = 1 - 1e-4 # decay rate on right
         self.batch_size = 128
@@ -72,15 +72,21 @@ class DQNAgent:
         patch = state[0]
         position = state[1]
 
+        action_picked = "at random"
+
         # implement the epsilon-greedy policy
         if random.random() < self.epsilon:
             # explore
-            return self.sample_action_space(position)
+            action = self.sample_action_space(position)
         else:
             # exploit
-            q_values = self.model.predict([np.expand_dims(patch, axis=0), np.expand_dims(position, axis=0)])[0]
+            q_values = self.model.predict([np.expand_dims(patch, axis=0), np.expand_dims(position, axis=0)], verbose=0)[0]
             q_values_masked = self.action_mask(q_values, position)
-            return np.argmax(q_values_masked)
+            action = np.argmax(q_values_masked)
+            action_picked = "by model"
+
+        print(f"\tStep: {self.env.total_steps + 1}/20, Current pos: {position}, Action taken: {action}, Action selected: {action_picked}")
+        return action
 
     
     def replay(self):
@@ -109,7 +115,12 @@ class DQNAgent:
         state_position = np.stack(state_position, axis=0)
         next_state_patch = np.stack(next_state_patch, axis=0)
         next_state_position = np.stack(next_state_position, axis=0)
-        
+
+        # print("\nSTATE POSITION MATRIX: ", state_position)
+        # print('\n')
+        # print("\n\nNEXT STATE POSITION MATRIX: ", next_state_position)
+        # print('\n')
+
         # check to see if state.shape is correct. 
         # if these fail, maybe use something like np.stack instead to eventually make it work?
         assert state_patch.shape == (self.batch_size, self.env.patch_size, self.env.patch_size, 1), f"error, state_patch has incorrect shape. should be of shape (batch_size, patch_size, patch_size, channels). got back state_patch.shape = {state_patch.shape}"
@@ -119,10 +130,10 @@ class DQNAgent:
 
         # compute value function of current(call it target) and value function of next state(call it target_next)
         # TODO: implement action masking here too
-        target = self.model.predict([state_patch, state_position])
+        target = self.model.predict([state_patch, state_position], verbose=0)
 
         # TODO: implement action masking here too
-        target_next = self.model.predict([next_state_patch, next_state_position])
+        target_next = self.model.predict([next_state_patch, next_state_position], verbose=0)
 
         for i in range(self.batch_size):
             # correction on the Q value for the action used,
@@ -151,6 +162,7 @@ class DQNAgent:
         scores = []
         found_lesion = []
         for e in range(self.EPISODES):
+            print(f"\nEpisode: {e+1}/{self.EPISODES}, Episode ID: {self.env.grid_id}, Lesion located at: {self.env.goal_pos}")
             state = self.env.reset()
             done = False
             score = 0
@@ -168,7 +180,7 @@ class DQNAgent:
                 if done:  
                     dateTimeObj = datetime.now()
                     timestampStr = dateTimeObj.strftime("%H:%M:%S")
-                    print("episode: {}/{}, steps taken: {}/{}, score: {}, found lesion: {}, e: {:.2}, time: {}".format(e+1, self.EPISODES, self.env.total_steps, self.env.max_steps, score, terminated, self.epsilon, timestampStr))
+                    print("episode: {}/{}, steps taken: {}/{}, score: {}, found lesion: {}, e: {:.2}, time: {}".format(e+1, self.EPISODES, self.env.total_steps, self.env.max_steps, score, np.all(self.env.current_pos == self.env.goal_pos), self.epsilon, timestampStr))
                     scores.append(score)
                     found_lesion.append(terminated)
                     # save model option
