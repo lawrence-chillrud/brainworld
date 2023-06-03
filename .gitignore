@@ -160,8 +160,6 @@ cython_debug/
 #.idea/
 
 # Lawrence's additions:
-# Ignore the entire data directory
 data/
-
-# Ignore the entire output directory
 output/
+src/scratch.py
