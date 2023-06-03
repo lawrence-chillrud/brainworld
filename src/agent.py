@@ -20,7 +20,7 @@ class DQNAgent:
         self.epsilon_min = 1e-4
         self.epsilon_decay = 1 - 1e-4 # decay rate on right
         self.batch_size = 128
-        self.train_start = 1000 # TODO: figure out how to burn this in before replay is used in every single episode..!
+        self.train_start = 200 # TODO: figure out how to burn this in before replay is used in every single episode..!
 
         # create main model
         self.model = VanillaCNN(input_shape=self.env.state[0].shape, action_space = self.action_size)
