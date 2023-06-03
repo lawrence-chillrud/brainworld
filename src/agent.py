@@ -67,7 +67,7 @@ class DQNAgent:
 
     def act(self, state):
         '''
-        Implements the epsilon-greedy policy, with action masking
+        Implements the epsilon-greedy policy, with grid wrapping
         '''
         patch = state[0]
         position = state[1]
@@ -77,16 +77,18 @@ class DQNAgent:
         # implement the epsilon-greedy policy
         if random.random() < self.epsilon:
             # explore
-            action = self.sample_action_space(position)
+            # action = self.sample_action_space(position) # was for old action masking
+            action = self.env.action_space.sample()
         else:
             # exploit
             q_values = self.model.predict([np.expand_dims(patch, axis=0), np.expand_dims(position, axis=0)], verbose=0)[0]
-            q_values_masked = self.action_mask(q_values, position)
-            action = np.argmax(q_values_masked)
+            action = np.argmax(q_values)
+            # q_values_masked = self.action_mask(q_values, position) # was for old action masking
+            # action = np.argmax(q_values_masked)
             action_picked = "by model"
 
-        print(f"\tStep: {self.env.total_steps + 1}/20, Current pos: {position}, Action taken: {action}, Action selected: {action_picked}")
-        return action
+        msg = f"\tStep: {self.env.total_steps + 1}/20, Current pos: {position}, Action taken: {action}, Action selected: {action_picked}"
+        return action, msg
 
     
     def replay(self):
@@ -162,15 +164,16 @@ class DQNAgent:
         scores = []
         found_lesion = []
         for e in range(self.EPISODES):
-            print(f"\nEpisode: {e+1}/{self.EPISODES}, Episode ID: {self.env.grid_id}, Lesion located at: {self.env.goal_pos}")
             state = self.env.reset()
+            print(f"\nEpisode: {e+1}/{self.EPISODES}, Episode ID: {self.env.grid_id}, Lesion located at: {self.env.goal_pos}")
             done = False
             score = 0
             while not done:
                 # if you have graphic support, you can render() to see the animation. 
                 # self.env.render()
-                action = self.act(state)
+                action, msg = self.act(state)
                 next_state, reward, terminated, truncated = self.env.step(action)
+                print(f"{msg}, Next pos: {next_state[1]}, Reward: {reward}")
                 done = terminated or truncated
                 score += reward
                 

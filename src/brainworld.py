@@ -66,6 +66,7 @@ class BrainWorldEnv(Env):
     def step(self, action):
 
         self.total_steps += 1
+        msg = f"\tSTEP: {self.total_steps}/20, Current pos: {self.current_pos}, Action taken: {action}, Goal_pos: {self.goal_pos}"
 
         assert self.action_space.contains(action), "%r (%s) invalid"%(action, type(action))
         done = False
@@ -80,34 +81,46 @@ class BrainWorldEnv(Env):
 
         elif action == 1: # move down
 
-            assert self.current_pos[0] < self.grid_size[0] - 1, "Cannot move down from bottom row"
+            # assert self.current_pos[0] < self.grid_size[0] - 1, "Cannot move down from bottom row" # from old action masking
+            new_pos = copy.deepcopy(self.current_pos) + np.array([1, 0])
+            msg += f", new_pos: {new_pos}"
+            if new_pos[0] == self.grid_size[0]:
+                # wrap grid back to top
+                new_pos[0] = 0
+            
             if np.all(self.current_pos == self.goal_pos): # we were overlapping lesion, but we moved away
                 reward = -0.5
-            elif np.all(self.current_pos + np.array([1, 0]) == self.goal_pos): # we are moving into lesion
+            elif np.all(new_pos == self.goal_pos): # we are moving into lesion
                 reward = 1
             else: # we weren't in lesion, and we're moving still not in lesion
                 reward = -0.5
 
-            self.current_pos[0] += 1
+            self.current_pos[0] = new_pos[0]
 
         elif action == 2: # move right
 
-            assert self.current_pos[1] < self.grid_size[1] - 1, "Cannot move right from rightmost column"
+            # assert self.current_pos[1] < self.grid_size[1] - 1, "Cannot move right from rightmost column" # from old action masking
+            new_pos = copy.deepcopy(self.current_pos) + np.array([0, 1])
+            msg += f", new_pos: {new_pos}"
+            if new_pos[1] == self.grid_size[1]:
+                # wrap grid back to left
+                new_pos[1] = 0
+
             if np.all(self.current_pos == self.goal_pos): # we were overlapping lesion, but we moved away
                 reward = -0.5
-            elif np.all(self.current_pos + np.array([0, 1]) == self.goal_pos): # we are moving into lesion
+            elif np.all(new_pos == self.goal_pos): # we are moving into lesion
                 reward = 1
             else: # we weren't in lesion, and we're moving still not in lesion
                 reward = -0.5
             
-            self.current_pos[1] += 1
+            self.current_pos[1] = new_pos[1]
 
         else: # invalid action
             raise ValueError("Invalid action. Must be one of [0, 1, 2], where 0 = stay still, 1 = move down, 2 = move right.")
 
         self.current_patch = np.expand_dims(self.patches[self.current_pos[0]][self.current_pos[1]], axis=-1)
-        self.state = [self.current_patch, self.current_pos]
-
+        self.state = [self.current_patch, copy.deepcopy(self.current_pos)]
+        # print(msg)
         return self.state, reward, done, self.total_steps >= self.max_steps
 
     def reset(self, seed = None, grid_id=[None, None], modality='t1ce'):
