@@ -9,7 +9,7 @@ from brainworld import BrainWorldEnv
 
 class DQNAgent:
     def __init__(self):
-        self.env = BrainWorldEnv(grid_size=(4, 4), start_pos=[0, 0], grid_id=[None, None], modality='t1ce')
+        self.env = BrainWorldEnv(grid_size=(4, 4), start_pos=np.array([0, 0]), grid_id=[None, None], modality='t1ce')
         
         self.action_size = self.env.action_space.n
         self.EPISODES = 90
@@ -23,7 +23,7 @@ class DQNAgent:
         self.train_start = 1000
 
         # create main model
-        self.model = VanillaCNN(input_shape=self.env.state.shape, action_space = self.action_size)
+        self.model = VanillaCNN(input_shape=self.env.state[0].shape, action_space = self.action_size)
 
 
     def remember(self, state, action, reward, next_state, done):
@@ -34,6 +34,10 @@ class DQNAgent:
     
     
     def act(self, state):
+
+        patch = state[0]
+        position = state[1]
+
         # implement the epsilon-greedy policy
         if random.random() < self.epsilon:
             # explore
@@ -42,7 +46,7 @@ class DQNAgent:
         else:
             # exploit
             # TODO: implement action masking to ensure we don't take an illegal action!
-            return np.argmax(self.model.predict([np.expand_dims(state, axis=0), self.env.current_pos])[0])
+            return np.argmax(self.model.predict([np.expand_dims(patch, axis=0), np.expand_dims(position, axis=0)])[0])
 
     
     def replay(self):
@@ -51,31 +55,35 @@ class DQNAgent:
         # Randomly sample minibatch from the memory
         minibatch = random.sample(self.memory, min(len(self.memory), self.batch_size))
 
-        state = np.empty(self.batch_size, dtype=object)
-        next_state = np.empty(self.batch_size, dtype=object)
+        state_patch = np.empty(self.batch_size, dtype=object)
+        state_position = np.empty(self.batch_size, dtype=object)
+        next_state_patch = np.empty(self.batch_size, dtype=object)
+        next_state_position = np.empty(self.batch_size, dtype=object)
         action, reward, done = [], [], []
 
         # assign data into state, next_state, action, reward and done from minibatch
         for i in range(self.batch_size):            
-            state[i] = minibatch[i][0]
+            state_patch[i] = minibatch[i][0][0] # i indexes minibatch, first 0 indexes state from memory, second 0 indexes patch
+            state_position[i] = minibatch[i][0][1] # i indexes minibatch, 0 indexes state from memory, 1 indexes position
             action.append(minibatch[i][1])
             reward.append(minibatch[i][2])
-            next_state[i] = minibatch[i][3]
+            next_state_patch[i] = minibatch[i][3][0] # i indexes minibatch, 3 indexes next_state from memory, 0 indexes patch
+            next_state_position[i] = minibatch[i][3][1] # i indexes minibatch, 3 indexes next_state from memory, 1 indexes position
             done.append(minibatch[i][4])
 
-        # TODO: check to see if state.shape is correct. 
-        # maybe use something like np.stack instead to eventually make
-        # state.shape = (batch_size, 60, 60, 1)
-        print("\n\nLINE 67 of AGENT.PY: STATE SHAPE", state.shape)
-        print("\n\n")
+        # check to see if state.shape is correct. 
+        # if these fail, maybe use something like np.stack instead to eventually make it work?
+        assert state_patch.shape == (self.batch_size, self.env.patch_size, self.env.patch_size, 1), f"error, state_patch has incorrect shape. should be of shape (batch_size, patch_size, patch_size, channels). got back state_patch.shape = {state_patch.shape}"
+        assert state_position.shape == (self.batch_size, 2), f"error, state_position has incorrect shape. should be of shape (batch_size, 2). got back state_position.shape = {state_position.shape}"
+        assert next_state_patch.shape == (self.batch_size, self.env.patch_size, self.env.patch_size, 1), f"error, next_state_patch has incorrect shape. should be of shape (batch_size, patch_size, patch_size, channels). got back next_state_patch.shape = {next_state_patch.shape}"
+        assert next_state_position.shape == (self.batch_size, 2), f"error, next_state_position has incorrect shape. should be of shape (batch_size, 2). got back next_state_position.shape = {next_state_position.shape}"
 
         # compute value function of current(call it target) and value function of next state(call it target_next)
         # TODO: implement action masking here too
-        target = self.model.predict([state, self.env.current_pos])
+        target = self.model.predict([state_patch, state_position])
 
-        # Q: should we be using self.env.current_pos + action here? or no?
-        # TODO: solve above question, implement action masking here too
-        target_next = self.model.predict([next_state, self.env.current_pos])
+        # TODO: implement action masking here too
+        target_next = self.model.predict([next_state_patch, next_state_position])
 
         for i in range(self.batch_size):
             # correction on the Q value for the action used,
@@ -91,7 +99,7 @@ class DQNAgent:
                 target[i][action[i]] = reward[i] + self.gamma*np.amax(target_next[i])
 
         # Train the Neural Network with batches where target is the value function
-        self.model.fit(state, target, batch_size=self.batch_size, verbose=0)
+        self.model.fit([state_patch, state_position], target, batch_size=self.batch_size, verbose=0)
 
 
     def load(self, name):
@@ -133,6 +141,7 @@ class DQNAgent:
         return scores, found_lesion
 
     # test function if you want to test the learned model
+    # TODO: not updated this for new environment, model, etc.
     def test(self):
         self.load("./save/cartpole-dqn-training.h5")
         for e in range(self.EPISODES):
