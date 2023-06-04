@@ -2,27 +2,7 @@ import random
 import numpy as np
 import copy
 from gym import Env, spaces
-from utils import get_overlap, read_scan, find_tumorous_slice, patchify_slice
-
-def find_most_tumorous_patch(patchified_seg):
-    n = len(patchified_seg)
-    m = len(patchified_seg[0])
-    tumour_count = np.empty((n, m))
-    for i in range(n):
-        for j in range(m):
-            tumour_count[i, j] = np.sum(patchified_seg[i][j] != 0) # just count the number of non-zero pixels
-    
-    return np.array(np.unravel_index(np.argmax(tumour_count), tumour_count.shape))
-
-def find_all_tumorous_patches(patchified_seg):
-    n = len(patchified_seg)
-    m = len(patchified_seg[0])
-    tumour_count = np.empty((n, m))
-    for i in range(n):
-        for j in range(m):
-            tumour_count[i, j] = np.sum(patchified_seg[i][j] != 0) # just count the number of non-zero pixels
-    
-    return np.argwhere(tumour_count != 0)
+from utils import get_overlap, read_scan, find_tumorous_slice, patchify_slice, find_most_tumorous_patch, find_all_tumorous_patches
 
 class BrainWorldEnv(Env):
     def __init__(self, grid_size=(4, 4), start_pos=np.array([0, 0]), grid_id=[None, None], modality='t1ce', max_steps=20):
@@ -61,7 +41,7 @@ class BrainWorldEnv(Env):
         self.current_patch = np.expand_dims(self.patches[start_pos[0]][start_pos[1]], axis=-1)
         self.state = [self.current_patch, self.current_pos]
 
-        self.goal_pos = find_most_tumorous_patch(self.patches_seg)
+        self.goal_pos, _ = find_most_tumorous_patch(self.patches_seg)
 
     def step(self, action):
 
@@ -148,7 +128,7 @@ class BrainWorldEnv(Env):
         self.current_patch = np.expand_dims(self.patches[self.start_pos[0]][self.start_pos[1]], axis=-1)
         self.state = [self.current_patch, self.current_pos]
 
-        self.goal_pos = find_most_tumorous_patch(self.patches_seg)
+        self.goal_pos, _ = find_most_tumorous_patch(self.patches_seg)
         self.total_steps = 0
 
         return self.state

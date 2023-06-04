@@ -3,11 +3,18 @@ import os
 import matplotlib.pyplot as plt
 from agent import DQNAgent
 import numpy as np
-
+import random
+from utils import get_overlap
 def experiment1():
-    for i in range(3):
+    random.seed(0)
+    dataset = random.sample(get_overlap(), 90)
+    burn_in = dataset[:30]
+    train = dataset[30:60]
+    val = dataset[60:90]
+
+    for i in range(1):
         print(f"Starting run {i}")
-        agent = DQNAgent()
+        agent = DQNAgent(burn_in=burn_in, train=train, val=val)
         scores, found_lesion = agent.training()
         plt.plot(np.arange(agent.EPISODES), scores, label = f"Run {i + 1}")
 

@@ -8,7 +8,10 @@ from models import VanillaCNN
 from brainworld import BrainWorldEnv
 
 class DQNAgent:
-    def __init__(self):
+    def __init__(self, burn_in, train, val):
+        self.burn_in = burn_in
+        self.train = train
+        self.val = val
         self.env = BrainWorldEnv(grid_size=(4, 4), start_pos=np.array([0, 0]), grid_id=[None, None], modality='t1ce')
         
         self.action_size = self.env.action_space.n
@@ -81,7 +84,8 @@ class DQNAgent:
             action = self.env.action_space.sample()
         else:
             # exploit
-            q_values = self.model.predict([np.expand_dims(patch, axis=0), np.expand_dims(position, axis=0)], verbose=0)[0]
+            # q_values = self.model.predict([np.expand_dims(patch, axis=0), np.expand_dims(position, axis=0)], verbose=0)[0]
+            q_values = self.model.predict(np.expand_dims(patch, axis=0), verbose=0)[0]
             action = np.argmax(q_values)
             # q_values_masked = self.action_mask(q_values, position) # was for old action masking
             # action = np.argmax(q_values_masked)
@@ -131,11 +135,11 @@ class DQNAgent:
         assert next_state_position.shape == (self.batch_size, 2), f"error, next_state_position has incorrect shape. should be of shape (batch_size, 2). got back next_state_position.shape = {next_state_position.shape}"
 
         # compute value function of current(call it target) and value function of next state(call it target_next)
-        # TODO: implement action masking here too
-        target = self.model.predict([state_patch, state_position], verbose=0)
+        # target = self.model.predict([state_patch, state_position], verbose=0)
+        target = self.model.predict(state_patch, verbose=0)
 
-        # TODO: implement action masking here too
-        target_next = self.model.predict([next_state_patch, next_state_position], verbose=0)
+        # target_next = self.model.predict([next_state_patch, next_state_position], verbose=0)
+        target_next = self.model.predict(next_state_patch, verbose=0)
 
         for i in range(self.batch_size):
             # correction on the Q value for the action used,
@@ -151,7 +155,8 @@ class DQNAgent:
                 target[i][action[i]] = reward[i] + self.gamma*np.amax(target_next[i])
 
         # Train the Neural Network with batches where target is the value function
-        self.model.fit([state_patch, state_position], target, batch_size=self.batch_size, verbose=0)
+        # self.model.fit([state_patch, state_position], target, batch_size=self.batch_size, verbose=0)
+        self.model.fit(state_patch, target, batch_size=self.batch_size, verbose=0)
 
 
     def load(self, name):
@@ -159,12 +164,30 @@ class DQNAgent:
 
     def save(self, name):
         self.model.save(name)
-            
+    
+    def burn_in_memory(self):
+        print("Burning in memory...")
+        for scan_id in self.burn_in:
+            self.env.reset(grid_id=[scan_id, None])
+            for i in range(self.env.grid_size[0]):
+                for j in range(self.env.grid_size[1]):
+                    self.env.current_patch = np.expand_dims(self.env.patches[i][j], axis=-1)
+                    self.env.current_pos = np.array([i, j])
+                    self.env.state = [self.env.current_patch, self.env.current_pos]
+                    state = self.env.state
+
+                    for action in range(self.env.action_space.n):
+                        next_state, reward, _, _ = self.env.step(action)
+                        self.memory.append((state, action, reward, next_state, False))
+        print("Finished burning in memory.")
+
+
     def training(self):
+        self.burn_in_memory()
         scores = []
         found_lesion = []
         for e in range(self.EPISODES):
-            state = self.env.reset()
+            state = self.env.reset(grid_id=[random.choice(self.train), None])
             print(f"\nEpisode: {e+1}/{self.EPISODES}, Episode ID: {self.env.grid_id}, Lesion located at: {self.env.goal_pos}")
             done = False
             score = 0
@@ -185,7 +208,13 @@ class DQNAgent:
                     timestampStr = dateTimeObj.strftime("%H:%M:%S")
                     print("episode: {}/{}, steps taken: {}/{}, score: {}, found lesion: {}, e: {:.2}, time: {}".format(e+1, self.EPISODES, self.env.total_steps, self.env.max_steps, score, np.all(self.env.current_pos == self.env.goal_pos), self.epsilon, timestampStr))
                     scores.append(score)
-                    found_lesion.append(terminated)
+                    found_lesion.append(np.all(self.env.current_pos == self.env.goal_pos))
+                    if e % 10 == 9:
+                        val_scores, val_found_lesion, val_preds, val_labels = self.test()
+                        print("Val results:")
+                        for (id, score, found, pred, lbl) in zip(self.val, val_scores, val_found_lesion, val_preds, val_labels):
+                            print(f"Val env id: {id}, score: {score}, found lesion: {found}, prediction: {pred}, label: {lbl}")
+                        print("\n")
                     # save model option
                     # if i >= 500:
                     #     print("Saving trained model as cartpole-dqn-training.h5")
@@ -195,21 +224,25 @@ class DQNAgent:
         return scores, found_lesion
 
     # test function if you want to test the learned model
-    # TODO: not updated this for new environment, model, etc.
     def test(self):
-        self.load("./save/cartpole-dqn-training.h5")
-        for e in range(self.EPISODES):
-            state = self.env.reset()
-            state = np.reshape(state, [1, self.state_size])
+        scores = []
+        found_lesion = []
+        prediction = []
+        actual = []
+        for scan_id in self.val:
+            state = self.env.reset(grid_id=[scan_id, None])
+            patch = state[0]
+            score = 0
             done = False
-            i = 0
             while not done:
-                # self.env.render()
-                action = np.argmax(self.model.predict(state))
-                next_state, reward, terminated, truncated, _ = self.env.step(action)
+                action = np.argmax(self.model.predict(np.expand_dims(patch, axis=0), verbose=0)[0])
+                next_state, reward, terminated, truncated = self.env.step(action)
                 done = terminated or truncated
-                state = np.reshape(next_state, [1, self.state_size])
-                i += 1
-                if done:
-                    print("episode: {}/{}, score: {}".format(e+1, self.EPISODES, i))
-                    break
+                state = next_state
+                patch = state[0]
+                score += reward
+            scores.append(score)
+            found_lesion.append(np.all(self.env.current_pos == self.env.goal_pos))
+            prediction.append(self.env.current_pos)
+            actual.append(self.env.goal_pos)
+        return scores, found_lesion, prediction, actual

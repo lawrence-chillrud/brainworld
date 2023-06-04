@@ -1,9 +1,30 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from .reader import read_scan, find_crop, crop_by
+from .patchify import patchify_slice
 
 def find_tumorous_slice(data):
     return np.argmax(data.sum(axis=tuple(range(data.ndim - 1))))
+
+def find_most_tumorous_patch(patchified_seg):
+    n = len(patchified_seg)
+    m = len(patchified_seg[0])
+    tumor_count = np.empty((n, m))
+    for i in range(n):
+        for j in range(m):
+            tumor_count[i, j] = np.sum(patchified_seg[i][j] != 0) # just count the number of non-zero pixels
+    
+    return np.array(np.unravel_index(np.argmax(tumor_count), tumor_count.shape)), tumor_count
+
+def find_all_tumorous_patches(patchified_seg):
+    n = len(patchified_seg)
+    m = len(patchified_seg[0])
+    tumour_count = np.empty((n, m))
+    for i in range(n):
+        for j in range(m):
+            tumour_count[i, j] = np.sum(patchified_seg[i][j] != 0) # just count the number of non-zero pixels
+    
+    return np.argwhere(tumour_count != 0)
 
 def visualize_scan(id, slice=None, crop=True, resize=False, modalities=['flair', 't1', 't1ce', 't2'], plot_scan=True, plot_seg=True, plot_overlay=True, colours=['none', '#a62d60', '#f6d543', '#f1731d'], labels=['Healthy brain tissue', 'Necrotic tumor core', 'Peritumoral edematous/invaded tissue', 'GD-enhancing tumor'], figsize=(8, 10)):
     '''
@@ -75,10 +96,12 @@ def visualize_scan(id, slice=None, crop=True, resize=False, modalities=['flair',
     fig.suptitle(f"Patient ID: {id}, slice number: {slice}", y = 1.02)
     plt.show()
 
-def plot_patch_grid(patches, figsize=(10, 10), seg=False):
+def plot_patch_grid(patches, figsize=(10, 10), seg=False, title=None):
     '''
     Plots grid of patches.
     '''
+    goal, tumor_count = find_most_tumorous_patch(patches)
+    total_tumor = np.sum(tumor_count)
     rows, cols = len(patches), len(patches[0])
     _, ax = plt.subplots(rows, cols, figsize=figsize)
     cmap = 'gray'
@@ -90,6 +113,15 @@ def plot_patch_grid(patches, figsize=(10, 10), seg=False):
             ax[i, j].tick_params(axis='both', which='both', length=0, labelsize=0)
             ax[i, j].set_aspect(1)
             ax[i, j].imshow(patches[i][j], cmap=cmap)
+            perc_tumor_in_patch = round(tumor_count[i][j] / total_tumor * 100)
+            patch_title = f"{perc_tumor_in_patch}% of tumor"
+            if np.all(goal == np.array([i, j])):
+                patch_title += " (goal pos)"
+            
+            ax[i, j].set_title(patch_title)
+
+    if title:
+        plt.suptitle(title, y = 1.02)
 
     plt.show()
 
@@ -118,3 +150,13 @@ def plot_slice(slice, seg=False):
         cmap = plt.cm.colors.ListedColormap(['black', '#a62d60', '#f6d543', '#f1731d'])
     ax.imshow(slice, cmap=cmap)
     plt.show()
+
+def plot_brainworld(env_id):
+    '''
+    Plots the grid environment of a BRaTS scan ID.
+    '''
+    seg = read_scan(env_id, 'seg')
+    slice_num = find_tumorous_slice(seg)
+    tumorous_slice = seg[:, :, slice_num]
+    tumorous_slice_patches = patchify_slice(tumorous_slice)
+    plot_patch_grid(tumorous_slice_patches, seg=True, title=f"Patient ID: {env_id}, slice number: {slice_num}")
