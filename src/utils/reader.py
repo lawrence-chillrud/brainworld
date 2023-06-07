@@ -40,4 +40,5 @@ def read_scan(id, modality='t2', train_dir=f'/home/{os.getlogin()}/brainworld/da
     assert modality in {'flair', 't1', 't1ce', 't2', 'seg'}
     scan = nib.load(f"{train_dir}/{_bid(id)}/{_bid(id)}_{modality}.nii.gz").get_fdata()
     if modality == 'seg': scan = scan.astype(np.uint8)
+    if modality != 'seg': scan = scan/np.max(scan)
     return scan

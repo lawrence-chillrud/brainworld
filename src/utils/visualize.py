@@ -2,6 +2,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from .reader import read_scan, find_crop, crop_by
 from .patchify import patchify_slice
+from IPython.display import HTML
+from matplotlib import animation, rc
+import os
 
 def find_tumorous_slice(data):
     return np.argmax(data.sum(axis=tuple(range(data.ndim - 1))))
@@ -113,12 +116,14 @@ def plot_patch_grid(patches, figsize=(10, 10), seg=False, title=None):
             ax[i, j].tick_params(axis='both', which='both', length=0, labelsize=0)
             ax[i, j].set_aspect(1)
             ax[i, j].imshow(patches[i][j], cmap=cmap)
-            perc_tumor_in_patch = round(tumor_count[i][j] / total_tumor * 100)
-            patch_title = f"{perc_tumor_in_patch}% of tumor"
-            if np.all(goal == np.array([i, j])):
-                patch_title += " (goal pos)"
             
-            ax[i, j].set_title(patch_title)
+            if seg:
+                perc_tumor_in_patch = round(tumor_count[i][j] / total_tumor * 100)
+                patch_title = f"{perc_tumor_in_patch}% of tumor"
+                if np.all(goal == np.array([i, j])):
+                    patch_title += " (goal pos)"
+                
+                ax[i, j].set_title(patch_title)
 
     if title:
         plt.suptitle(title, y = 1.02)
@@ -151,12 +156,72 @@ def plot_slice(slice, seg=False):
     ax.imshow(slice, cmap=cmap)
     plt.show()
 
-def plot_brainworld(env_id):
+def plot_brainworld(env_id, modality=None):
     '''
     Plots the grid environment of a BRaTS scan ID.
     '''
+    is_seg = True
+    if modality:
+        scan = read_scan(env_id, modality=modality)
+        is_seg = False
+    else:
+        scan = read_scan(env_id, modality='seg')
+        modality = 'seg'
+
     seg = read_scan(env_id, 'seg')
     slice_num = find_tumorous_slice(seg)
-    tumorous_slice = seg[:, :, slice_num]
+    tumorous_slice = scan[:, :, slice_num]
     tumorous_slice_patches = patchify_slice(tumorous_slice)
-    plot_patch_grid(tumorous_slice_patches, seg=True, title=f"Patient ID: {env_id}, slice number: {slice_num}")
+    plot_patch_grid(tumorous_slice_patches, seg=is_seg, title=f"Patient ID: {env_id}, slice number: {slice_num}, modality: {modality}")
+
+rc('animation', html='jshtml')
+
+
+def animate_scan(id, modality='t2', crop=True, save=True, colours=['none', '#a62d60', '#f6d543', '#f1731d'], labels=['Healthy brain tissue', 'Necrotic tumor core', 'Peritumoral edematous/invaded tissue', 'GD-enhancing tumor'], figsize=(6, 6), interval=60):
+    '''Animates [modality].nii.gz file of patient [id].'''
+
+    # error handling (ensuring correct inputs provided)
+    assert modality in {'flair', 't1', 't1ce', 't2', 'seg'}
+    assert len(colours) == 4
+    assert colours[0] == 'none'
+    
+    # set up relevant paths
+    scan = read_scan(id, modality)
+    
+    if crop:
+        xmin, xmax, ymin, ymax, zmin, zmax = find_crop(scan)
+        scan = crop_by(scan, xmin, xmax, ymin, ymax, zmin, zmax)
+
+    cmap = 'gray'
+    if modality == 'seg':
+        cmap = plt.cm.colors.ListedColormap(colours)
+    
+    max_slice = find_tumorous_slice(scan)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    plt.axis('off')
+
+    im1 = ax.imshow(scan[:, :, max_slice], cmap=cmap)
+    fig.suptitle(f'Patient ID: {id}, Scan: {modality}, Slice: n/a')
+    if modality == 'seg':
+        fig.legend(bbox_to_anchor=(0.5, 1), handles=[plt.Rectangle((0, 0), 1, 1, color=color) for color in colours[1:]], labels=labels[1:], loc='lower center')
+
+    def animate_func(i):
+        if crop:
+            indices = range(zmin, zmax)
+        else:
+            indices = range(0, scan.shape[-1])
+        
+        fig.suptitle(f'Patient ID: {id}, Scan: {modality.upper()}, Slice: {indices[i]}')
+        im1.set_array(scan[:, :, i])
+        return im1
+    
+    anim = animation.FuncAnimation(fig, animate_func, frames=scan.shape[-1], interval=interval)
+
+    if save:
+        gif_dir = f'/home/{os.getlogin()}/brainworld/output/gifs'
+        if not os.path.exists(gif_dir): os.makedirs(gif_dir)
+        path = f"{gif_dir}/patient{id}_{modality}.gif"
+        anim.save(path)
+    else:
+        return HTML(anim.to_jshtml())
